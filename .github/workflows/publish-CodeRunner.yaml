@@ -60,7 +60,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push coderunner image arm64
-        run: docker build --push --platform linux/arm64/v8 --tag ghcr.io/${{ env.IMAGE_NAME }}:${{ inputs.tag }} --tag ghcr.io/${{ env.IMAGE_NAME }}:latest CodeRunner/.
+        run: docker build --push --platform linux/arm64/v8 --build-arg GOARCH=arm64 --tag ghcr.io/${{ env.IMAGE_NAME }}:${{ inputs.tag }} --tag ghcr.io/${{ env.IMAGE_NAME }}:latest CodeRunner/.
       - name: Cleanup docker images
         run: docker image prune -f -a
   build-and-push-lxu:
