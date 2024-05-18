@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 18
           registry-url: https://npm.pkg.github.com/
-      - run: cd CodeBlock
       - run: npm publish
+        working-directory: ./app
         env:
           NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
