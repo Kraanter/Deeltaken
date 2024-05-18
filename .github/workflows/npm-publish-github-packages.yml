@@ -4,12 +4,7 @@
 name: Node.js Package
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: 'New version number'
-        required: true
-        type: string
+  workflow_dispatch:
 
 jobs:
   publish-gpr:
