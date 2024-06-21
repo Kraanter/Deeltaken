@@ -1,11 +1,13 @@
 package utility
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -259,17 +261,15 @@ func CreateChannelPair(containerID string) (chan InputCommand, chan OutputComman
 					cmd = containerCmd
 
 					go func() {
-						buf := make([]byte, 1024)
 						for {
-							n, err := outputLSP.Read(buf)
+							outputMessage, err := readLSPResponse(outputLSP)
 							if err != nil {
+								fmt.Println("Error reading from LSP", err.Error())
 								break
 							}
 
-							println("Got output from LSP: ", string(buf[:n]))
-
 							output <- OutputCommand{
-								Payload:       string(buf[:n]),
+								Payload:       outputMessage,
 								OutputCommand: LSPOutput,
 							}
 						}
@@ -289,8 +289,7 @@ func CreateChannelPair(containerID string) (chan InputCommand, chan OutputComman
 						input := lspInput.Payload
 						fmt.Println("Sending input to LSP: ", input)
 
-						_, err = fmt.Fprintf(inputLSP, "Content-Length: %d\r\n\r\n", len(input))
-						_, err := inputLSP.Write([]byte(input))
+						sendLSPRequest(inputLSP, input)
 						if err != nil {
 							fmt.Println("Error writing to LSP", err.Error())
 							output <- OutputCommand{
@@ -356,7 +355,7 @@ func RunCodeOnContainer(containerID, code string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-func RunLSPOnContainer(containerID string) (*exec.Cmd, io.Writer, io.Reader, error) {
+func RunLSPOnContainer(containerID string) (*exec.Cmd, *bufio.Writer, *bufio.Reader, error) {
 	cmd := exec.Command("docker", "exec", "-i", containerID, "csharp-ls")
 	// cmd := exec.Command("docker", "exec", "-i", containerID, "cat")
 
@@ -381,8 +380,8 @@ func RunLSPOnContainer(containerID string) (*exec.Cmd, io.Writer, io.Reader, err
 	}
 
 	// Create reader and writer
-	reader := io.Reader(stdout)
-	writer := io.Writer(stdin)
+	writer := bufio.NewWriter(stdin)
+	reader := bufio.NewReader(stdout)
 
 	return cmd, writer, reader, nil
 }
@@ -419,4 +418,37 @@ func PullImage(imageName string) error {
 	wg.Wait()
 
 	return err
+}
+
+func sendLSPRequest(writer *bufio.Writer, data string) {
+	fmt.Fprintf(writer, "Content-Length: %d\r\n\r\n", len(data))
+	writer.Write([]byte(data))
+	writer.Flush()
+}
+
+func readLSPResponse(reader *bufio.Reader) (string, error) {
+	var response string
+	// Lees de headers
+	headers := make(map[string]string)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return response, err
+		}
+		if line == "\r\n" {
+			break
+		}
+
+		parts := strings.SplitN(line, ": ", 2)
+		if len(parts) == 2 {
+			headers[parts[0]] = parts[1]
+		}
+	}
+
+	// Lees de content
+	length, _ := strconv.Atoi(strings.TrimSpace(headers["Content-Length"]))
+	data := make([]byte, length)
+	io.ReadFull(reader, data)
+
+	return string(data), nil
 }
