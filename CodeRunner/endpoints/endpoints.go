@@ -10,6 +10,7 @@ func Init(router *http.ServeMux) {
 	router.HandleFunc("/code", logginMiddleware(codeEndpoint))
 	router.HandleFunc("/languages", logginMiddleware(languagesEndpoint))
 	router.HandleFunc("/codeSocket", logginMiddleware(codeWebsocket))
+	router.HandleFunc("/lsp", logginMiddleware(lspWebsocket))
 }
 
 func logginMiddleware(next http.HandlerFunc) http.HandlerFunc {

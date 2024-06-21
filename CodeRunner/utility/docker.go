@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -77,13 +78,18 @@ type OutputCommandType int
 
 const (
 	RunCode InputCommandType = iota
+	RunLSP
+	LSPInput
 	Stop
 )
 
 const (
 	StartCodeOutput OutputCommandType = iota
+	StartLSPOutput
 	CodeOutput
+	LSPOutput
 	EndCodeOutput
+	EndLSPOutput
 	Failed
 )
 
@@ -109,6 +115,7 @@ func CreateChannelPair(containerID string) (chan InputCommand, chan OutputComman
 
 		// Based on the input command, do something
 		for command := range input {
+			println("Received command", command.InputCommand, command.Payload)
 			switch command.InputCommand {
 			case RunCode:
 				if cmd != nil {
@@ -225,6 +232,85 @@ func CreateChannelPair(containerID string) (chan InputCommand, chan OutputComman
 
 				// Wait for the command to finish
 				cmd.Wait()
+			case RunLSP:
+				if cmd != nil {
+					output <- OutputCommand{
+						Payload:       "A command is already running",
+						OutputCommand: Failed,
+					}
+					continue
+				}
+
+				println("Running LSP")
+
+				// Run the LSP
+				err := func() error {
+					containerCmd, inputLSP, outputLSP, err := RunLSPOnContainer(containerID)
+					if err != nil {
+						fmt.Println("Error preparing to run LSP on container:", err.Error())
+						return err
+					}
+
+					output <- OutputCommand{
+						Payload:       "LSP is running",
+						OutputCommand: StartLSPOutput,
+					}
+
+					cmd = containerCmd
+
+					go func() {
+						buf := make([]byte, 1024)
+						for {
+							n, err := outputLSP.Read(buf)
+							if err != nil {
+								break
+							}
+
+							println("Got output from LSP: ", string(buf[:n]))
+
+							output <- OutputCommand{
+								Payload:       string(buf[:n]),
+								OutputCommand: LSPOutput,
+							}
+						}
+					}()
+
+					// Any input on the input channel should be sent to the LSP
+					// Any output from the LSP should be sent to the output channel
+					println("Starting LSP input/output loop")
+					for {
+						println("Waiting for input to send to LSP")
+						lspInput := <-input
+
+						fmt.Printf("Got input: %v\n", lspInput)
+						if lspInput.InputCommand != LSPInput {
+							continue
+						}
+						input := lspInput.Payload
+						fmt.Println("Sending input to LSP: ", input)
+
+						_, err = fmt.Fprintf(inputLSP, "Content-Length: %d\r\n\r\n", len(input))
+						_, err := inputLSP.Write([]byte(input))
+						if err != nil {
+							fmt.Println("Error writing to LSP", err.Error())
+							output <- OutputCommand{
+								Payload:       "Error writing to LSP",
+								OutputCommand: Failed,
+							}
+							break
+						}
+					}
+
+					return nil
+				}()
+				if err != nil {
+					fmt.Println("Error running command: remote", err.Error())
+					output <- OutputCommand{
+						Payload:       "Error running command",
+						OutputCommand: Failed,
+					}
+					continue
+				}
 			}
 		}
 	}()
@@ -268,6 +354,37 @@ func RunCodeOnContainer(containerID, code string) (*exec.Cmd, error) {
 	cmd = exec.Command("docker", "exec", containerID, "/source/script.sh")
 
 	return cmd, nil
+}
+
+func RunLSPOnContainer(containerID string) (*exec.Cmd, io.Writer, io.Reader, error) {
+	cmd := exec.Command("docker", "exec", "-i", containerID, "csharp-ls")
+	// cmd := exec.Command("docker", "exec", "-i", containerID, "cat")
+
+	// Create a pipe to the stdin of the command
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		println("Error creating stdin pipe", err.Error())
+		return nil, nil, nil, err
+	}
+
+	// Create a pipe to the stdout of the command
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		println("Error creating stdout pipe", err.Error())
+		return nil, nil, nil, err
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		println("Error starting command", err.Error())
+		return nil, nil, nil, err
+	}
+
+	// Create reader and writer
+	reader := io.Reader(stdout)
+	writer := io.Writer(stdin)
+
+	return cmd, writer, reader, nil
 }
 
 func IsImagePresent(imageName string) bool {
