@@ -280,7 +280,12 @@ func CreateChannelPair(containerID string) (chan InputCommand, chan OutputComman
 					println("Starting LSP input/output loop")
 					for {
 						println("Waiting for input to send to LSP")
-						lspInput := <-input
+						lspInput, ok := <-input
+						if !ok || lspInput.InputCommand == Stop {
+							fmt.Println("Stopping LSP")
+							cmd.Process.Kill()
+							break
+						}
 
 						fmt.Printf("Got input: %v\n", lspInput)
 						if lspInput.InputCommand != LSPInput {
@@ -356,8 +361,7 @@ func RunCodeOnContainer(containerID, code string) (*exec.Cmd, error) {
 }
 
 func RunLSPOnContainer(containerID string) (*exec.Cmd, *bufio.Writer, *bufio.Reader, error) {
-	cmd := exec.Command("docker", "exec", "-i", containerID, "csharp-ls")
-	// cmd := exec.Command("docker", "exec", "-i", containerID, "cat")
+	cmd := exec.Command("docker", "exec", "-i", containerID, "sh", "-c", "./lsp.sh")
 
 	// Create a pipe to the stdin of the command
 	stdin, err := cmd.StdinPipe()

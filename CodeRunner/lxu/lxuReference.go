@@ -39,6 +39,15 @@ func (lxu *LXUReference) StopCodeStream() {
 
 func (lxu *LXUReference) Destroy() {
 	lxu.parent.RemoveReference(lxu.id)
+
+	if lxu.input != nil {
+		close(lxu.input)
+		lxu.input = nil
+	}
+	if lxu.output != nil {
+		close(lxu.output)
+		lxu.output = nil
+	}
 }
 
 func (lxu *LXUReference) StreamCode(code string) (chan string, error) {
@@ -97,8 +106,11 @@ func (lxu *LXUReference) StreamLSP() (chan string, chan string, error) {
 
 	go func() {
 		for {
-			output := <-lxu.output
-			println("Received output from LSP", output.OutputCommand, output.Payload)
+			output, ok := <-lxu.output
+			if !ok {
+				close(outputChannel)
+				return
+			}
 			if output.OutputCommand == utility.EndLSPOutput {
 				close(outputChannel)
 				return

@@ -51,6 +51,7 @@ func lspWebsocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer println("Destroying container")
 	defer runner.Destroy()
 
 	lspInput, lspOutput, err := runner.StreamLSP()
@@ -60,7 +61,9 @@ func lspWebsocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utility.BindInputChannelToWebsocket(conn, lspInput)
+	utility.BindInputChannelToWebsocket(conn, lspInput, func() {
+		runner.Destroy()
+	})
 	utility.BindWebsocketToOutputChannel(conn, lspOutput)
 
 }
